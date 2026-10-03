@@ -10,10 +10,13 @@ import type { Point } from '@/types/point'
 import type { Observation } from '@/types/observation'
 import type { Alarm } from '@/types/alarm'
 import type { Pool } from '@/types/pool'
+import type { WaterLevelPacket } from '@/types/waterPacket'
+import type { ReconcileIssue } from '@/types/reconcileIssue'
+import type { JointRisk } from '@/types/jointRisk'
 import { cumulativeOf, dailyRateOf, daysBetween } from '@/utils/threshold'
 
 export const DB_NAME = 'gbtaildam'
-export const DB_VERSION = 2
+export const DB_VERSION = 3
 
 export const LS_KEYS = {
   dbVersion: 'gbtaildam:db-version',
@@ -38,13 +41,16 @@ export interface BackupPayload {
   observations: Observation[]
   alarms: Alarm[]
   pools: Pool[]
+  waterPackets: WaterLevelPacket[]
+  reconcileIssues: ReconcileIssue[]
+  jointRisks: JointRisk[]
 }
 
 export interface Revisioned {
   revision?: number
 }
 
-export const ROW_REVISION = 2
+export const ROW_REVISION = 3
 
 export type DamRow = Dam & Revisioned
 export type SectionRow = Section & Revisioned
@@ -52,6 +58,9 @@ export type PointRow = Point & Revisioned
 export type ObservationRow = Observation & Revisioned
 export type AlarmRow = Alarm & Revisioned
 export type PoolRow = Pool & Revisioned
+export type WaterPacketRow = WaterLevelPacket & Revisioned
+export type ReconcileIssueRow = ReconcileIssue & Revisioned
+export type JointRiskRow = JointRisk & Revisioned
 
 class TailDamDatabase extends Dexie {
   dams!: Table<DamRow, string>
@@ -60,6 +69,9 @@ class TailDamDatabase extends Dexie {
   observations!: Table<ObservationRow, string>
   alarms!: Table<AlarmRow, string>
   pools!: Table<PoolRow, string>
+  waterPackets!: Table<WaterPacketRow, string>
+  reconcileIssues!: Table<ReconcileIssueRow, string>
+  jointRisks!: Table<JointRiskRow, string>
 
   constructor() {
     super(DB_NAME)
@@ -123,6 +135,19 @@ class TailDamDatabase extends Dexie {
             if (typeof alarm.measure !== 'string') alarm.measure = ''
           })
       })
+
+    // v3：汛期回传对账——回传包 / 对账异常 / 橙色联合风险三张新表；pools 增加回传事实来源列
+    this.version(3).stores({
+      dams: 'id, name, damType, grade, updatedAt',
+      sections: 'id, damId, stakeNo, updatedAt',
+      points: 'id, sectionId, damId, code, type, updatedAt',
+      observations: 'id, pointId, date, observer, updatedAt',
+      alarms: 'id, pointId, damId, level, state, updatedAt',
+      pools: 'id, damId, date, source, packetNo, updatedAt',
+      waterPackets: 'id, packetNo, status, updatedAt',
+      reconcileIssues: 'id, packetId, damId, state, code, updatedAt',
+      jointRisks: 'id, damId, state, updatedAt'
+    })
   }
 }
 
@@ -197,11 +222,79 @@ const SEED_ALARMS: AlarmRow[] = [
 ]
 
 const SEED_POOLS: PoolRow[] = [
-  { id: 'pl-1', damId: 'dam-1', date: '2024-04-10', waterLevelM: 709.8, beachLengthM: 132, freeboardM: 2.7, createdAt: stamp(-63), updatedAt: stamp(-63), revision: ROW_REVISION },
-  { id: 'pl-2', damId: 'dam-1', date: '2024-05-10', waterLevelM: 710.4, beachLengthM: 118, freeboardM: 2.1, createdAt: stamp(-33), updatedAt: stamp(-33), revision: ROW_REVISION },
-  { id: 'pl-3', damId: 'dam-1', date: '2024-06-09', waterLevelM: 711.1, beachLengthM: 96, freeboardM: 1.4, createdAt: stamp(-2), updatedAt: stamp(-2), revision: ROW_REVISION },
-  { id: 'pl-4', damId: 'dam-2', date: '2024-05-10', waterLevelM: 642.1, beachLengthM: 88, freeboardM: 2.9, createdAt: stamp(-33), updatedAt: stamp(-33), revision: ROW_REVISION },
-  { id: 'pl-5', damId: 'dam-2', date: '2024-06-09', waterLevelM: 643.4, beachLengthM: 74, freeboardM: 1.8, createdAt: stamp(-2), updatedAt: stamp(-2), revision: ROW_REVISION }
+  { id: 'pl-1', damId: 'dam-1', date: '2024-04-10', waterLevelM: 709.8, beachLengthM: 132, freeboardM: 2.7, source: '人工录入', createdAt: stamp(-63), updatedAt: stamp(-63), revision: ROW_REVISION },
+  { id: 'pl-2', damId: 'dam-1', date: '2024-05-10', waterLevelM: 710.4, beachLengthM: 118, freeboardM: 2.1, source: '人工录入', createdAt: stamp(-33), updatedAt: stamp(-33), revision: ROW_REVISION },
+  { id: 'pl-3', damId: 'dam-1', date: '2024-06-09', waterLevelM: 711.1, beachLengthM: 96, freeboardM: 1.4, source: '人工录入', createdAt: stamp(-2), updatedAt: stamp(-2), revision: ROW_REVISION },
+  { id: 'pl-4', damId: 'dam-2', date: '2024-05-10', waterLevelM: 642.1, beachLengthM: 88, freeboardM: 2.9, source: '人工录入', createdAt: stamp(-33), updatedAt: stamp(-33), revision: ROW_REVISION },
+  { id: 'pl-5', damId: 'dam-2', date: '2024-06-09', waterLevelM: 643.4, beachLengthM: 74, freeboardM: 1.8, source: '人工录入', createdAt: stamp(-2), updatedAt: stamp(-2), revision: ROW_REVISION },
+  // 汛期回传包 PK-20240612-01：dam-1 08:00 已确认（写入水位事实），12:00 尚未确认
+  {
+    id: packetFactId('PK-20240612-01', 'dam-1', '2024-06-12 08:00'),
+    damId: 'dam-1',
+    date: '2024-06-12',
+    waterLevelM: 711.2,
+    beachLengthM: 0,
+    freeboardM: 0,
+    source: '回传确认',
+    packetNo: 'PK-20240612-01',
+    readingTime: '2024-06-12 08:00',
+    createdAt: stamp(-1),
+    updatedAt: stamp(-1),
+    revision: ROW_REVISION
+  }
+]
+
+/** 回传确认写入 pools 的确定性 id：同包同坝体同测次重复确认不重复开单 */
+export function packetFactId(packetNo: string, damId: string, time: string): string {
+  return `pl-pk-${packetNo}-${damId}-${time.replace(/[^0-9]/g, '')}`
+}
+
+const SEED_WATER_PACKETS: WaterPacketRow[] = [
+  {
+    id: 'wp-1',
+    packetNo: 'PK-20240612-01',
+    source: '汛期水文站',
+    status: '对账中',
+    lastConfirmedTime: '2024-06-12 08:00',
+    readings: [
+      { time: '2024-06-12 08:00', damId: 'dam-1', level: 711.2, unit: 'm' },
+      { time: '2024-06-12 12:00', damId: 'dam-1', level: 711.7, unit: 'm' }
+    ],
+    createdAt: stamp(-1),
+    updatedAt: stamp(-1),
+    revision: ROW_REVISION
+  },
+  {
+    id: 'wp-2',
+    packetNo: 'PK-20240612-02',
+    source: '汛期水文站',
+    status: '待对账',
+    lastConfirmedTime: '',
+    readings: [
+      { time: '2024-06-12 08:00', damId: 'dam-2', level: 64370, unit: 'cm' },
+      { time: '2024-06-12 18:00', damId: 'dam-2', level: 643.9, unit: 'm' }
+    ],
+    createdAt: stamp(-1),
+    updatedAt: stamp(-1),
+    revision: ROW_REVISION
+  }
+]
+
+const SEED_RECONCILE_ISSUES: ReconcileIssueRow[] = [
+  {
+    id: 'ri-1',
+    packetId: 'wp-2',
+    packetNo: 'PK-20240612-02',
+    damId: 'dam-2',
+    time: '2024-06-12 08:00',
+    code: 'UNIT_MISMATCH',
+    detail: '台账水位统一按 m 计，回传单位为 cm',
+    packetDetail: '回传 2024-06-12 08:00 · 64370 cm',
+    state: '待确认',
+    createdAt: stamp(-1),
+    updatedAt: stamp(-1),
+    revision: ROW_REVISION
+  }
 ]
 
 /** 由原始行派生累计变化量与日速率 */
@@ -229,14 +322,20 @@ function buildSeedObservations(): ObservationRow[] {
 }
 
 export async function seedDatabase(): Promise<void> {
-  await db.transaction('rw', [db.dams, db.sections, db.points, db.observations, db.alarms, db.pools], async () => {
-    await db.dams.bulkPut(SEED_DAMS)
-    await db.sections.bulkPut(SEED_SECTIONS)
-    await db.points.bulkPut(SEED_POINTS)
-    await db.observations.bulkPut(buildSeedObservations())
-    await db.alarms.bulkPut(SEED_ALARMS)
-    await db.pools.bulkPut(SEED_POOLS)
-  })
+  await db.transaction(
+    'rw',
+    [db.dams, db.sections, db.points, db.observations, db.alarms, db.pools, db.waterPackets, db.reconcileIssues, db.jointRisks],
+    async () => {
+      await db.dams.bulkPut(SEED_DAMS)
+      await db.sections.bulkPut(SEED_SECTIONS)
+      await db.points.bulkPut(SEED_POINTS)
+      await db.observations.bulkPut(buildSeedObservations())
+      await db.alarms.bulkPut(SEED_ALARMS)
+      await db.pools.bulkPut(SEED_POOLS)
+      await db.waterPackets.bulkPut(SEED_WATER_PACKETS)
+      await db.reconcileIssues.bulkPut(SEED_RECONCILE_ISSUES)
+    }
+  )
 }
 
 /** 首屏调用：打开数据库并在主表为空时播种演示数据 */
@@ -250,13 +349,27 @@ export async function initDatabase(): Promise<void> {
 /* ============================== 级联删除 ============================== */
 
 export async function deleteDamCascade(damId: string): Promise<void> {
-  await db.transaction('rw', [db.dams, db.sections, db.points, db.observations, db.alarms, db.pools], async () => {
-    const sections = await db.sections.where('damId').equals(damId).toArray()
-    await deletePointsOfSections(sections.map((section) => section.id))
-    if (sections.length > 0) await db.sections.bulkDelete(sections.map((section) => section.id))
-    await db.pools.where('damId').equals(damId).delete()
-    await db.dams.delete(damId)
-  })
+  await db.transaction(
+    'rw',
+    [db.dams, db.sections, db.points, db.observations, db.alarms, db.pools, db.waterPackets, db.reconcileIssues, db.jointRisks],
+    async () => {
+      const sections = await db.sections.where('damId').equals(damId).toArray()
+      await deletePointsOfSections(sections.map((section) => section.id))
+      if (sections.length > 0) await db.sections.bulkDelete(sections.map((section) => section.id))
+      await db.pools.where('damId').equals(damId).delete()
+      await db.reconcileIssues.where('damId').equals(damId).delete()
+      await db.jointRisks.where('damId').equals(damId).delete()
+      // 回传包可能含多个坝体的测次：仅剔除该坝体的测次，空包保留对账痕迹
+      const packets = await db.waterPackets.toArray()
+      for (const packet of packets) {
+        const remaining = packet.readings.filter((reading) => reading.damId !== damId)
+        if (remaining.length !== packet.readings.length) {
+          await db.waterPackets.update(packet.id, { readings: remaining, updatedAt: Date.now() })
+        }
+      }
+      await db.dams.delete(damId)
+    }
+  )
 }
 
 export async function deleteSectionCascade(sectionId: string): Promise<void> {
@@ -288,25 +401,31 @@ async function deletePointsOfSections(sectionIds: string[]): Promise<void> {
 /* ============================ 整库导入导出 ============================ */
 
 export async function countAll(): Promise<Record<string, number>> {
-  const [dams, sections, points, observations, alarms, pools] = await Promise.all([
+  const [dams, sections, points, observations, alarms, pools, waterPackets, reconcileIssues, jointRisks] = await Promise.all([
     db.dams.count(),
     db.sections.count(),
     db.points.count(),
     db.observations.count(),
     db.alarms.count(),
-    db.pools.count()
+    db.pools.count(),
+    db.waterPackets.count(),
+    db.reconcileIssues.count(),
+    db.jointRisks.count()
   ])
-  return { dams, sections, points, observations, alarms, pools }
+  return { dams, sections, points, observations, alarms, pools, waterPackets, reconcileIssues, jointRisks }
 }
 
 export async function exportSnapshot(): Promise<BackupPayload> {
-  const [dams, sections, points, observations, alarms, pools] = await Promise.all([
+  const [dams, sections, points, observations, alarms, pools, waterPackets, reconcileIssues, jointRisks] = await Promise.all([
     db.dams.toArray(),
     db.sections.toArray(),
     db.points.toArray(),
     db.observations.toArray(),
     db.alarms.toArray(),
-    db.pools.toArray()
+    db.pools.toArray(),
+    db.waterPackets.toArray(),
+    db.reconcileIssues.toArray(),
+    db.jointRisks.toArray()
   ])
   const strip = <T extends Revisioned>(row: T): Omit<T, 'revision'> => {
     const { revision: _revision, ...rest } = row
@@ -321,41 +440,61 @@ export async function exportSnapshot(): Promise<BackupPayload> {
     points: points.map(strip),
     observations: observations.map(strip),
     alarms: alarms.map(strip),
-    pools: pools.map(strip)
+    pools: pools.map(strip),
+    waterPackets: waterPackets.map(strip),
+    reconcileIssues: reconcileIssues.map(strip),
+    jointRisks: jointRisks.map(strip)
   }
 }
 
 export async function importSnapshot(payload: BackupPayload): Promise<void> {
-  await db.transaction('rw', [db.dams, db.sections, db.points, db.observations, db.alarms, db.pools], async () => {
-    await Promise.all([
-      db.dams.clear(),
-      db.sections.clear(),
-      db.points.clear(),
-      db.observations.clear(),
-      db.alarms.clear(),
-      db.pools.clear()
-    ])
-    const rev = <T>(row: T): T & Revisioned => ({ ...row, revision: ROW_REVISION })
-    await db.dams.bulkPut((payload.dams ?? []).map(rev))
-    await db.sections.bulkPut((payload.sections ?? []).map(rev))
-    await db.points.bulkPut((payload.points ?? []).map(rev))
-    await db.observations.bulkPut((payload.observations ?? []).map(rev))
-    await db.alarms.bulkPut((payload.alarms ?? []).map(rev))
-    await db.pools.bulkPut((payload.pools ?? []).map(rev))
-  })
+  await db.transaction(
+    'rw',
+    [db.dams, db.sections, db.points, db.observations, db.alarms, db.pools, db.waterPackets, db.reconcileIssues, db.jointRisks],
+    async () => {
+      await Promise.all([
+        db.dams.clear(),
+        db.sections.clear(),
+        db.points.clear(),
+        db.observations.clear(),
+        db.alarms.clear(),
+        db.pools.clear(),
+        db.waterPackets.clear(),
+        db.reconcileIssues.clear(),
+        db.jointRisks.clear()
+      ])
+      const rev = <T>(row: T): T & Revisioned => ({ ...row, revision: ROW_REVISION })
+      await db.dams.bulkPut((payload.dams ?? []).map(rev))
+      await db.sections.bulkPut((payload.sections ?? []).map(rev))
+      await db.points.bulkPut((payload.points ?? []).map(rev))
+      await db.observations.bulkPut((payload.observations ?? []).map(rev))
+      await db.alarms.bulkPut((payload.alarms ?? []).map(rev))
+      await db.pools.bulkPut((payload.pools ?? []).map(rev))
+      await db.waterPackets.bulkPut((payload.waterPackets ?? []).map(rev))
+      await db.reconcileIssues.bulkPut((payload.reconcileIssues ?? []).map(rev))
+      await db.jointRisks.bulkPut((payload.jointRisks ?? []).map(rev))
+    }
+  )
 }
 
 export async function clearAllTables(): Promise<void> {
-  await db.transaction('rw', [db.dams, db.sections, db.points, db.observations, db.alarms, db.pools], async () => {
-    await Promise.all([
-      db.dams.clear(),
-      db.sections.clear(),
-      db.points.clear(),
-      db.observations.clear(),
-      db.alarms.clear(),
-      db.pools.clear()
-    ])
-  })
+  await db.transaction(
+    'rw',
+    [db.dams, db.sections, db.points, db.observations, db.alarms, db.pools, db.waterPackets, db.reconcileIssues, db.jointRisks],
+    async () => {
+      await Promise.all([
+        db.dams.clear(),
+        db.sections.clear(),
+        db.points.clear(),
+        db.observations.clear(),
+        db.alarms.clear(),
+        db.pools.clear(),
+        db.waterPackets.clear(),
+        db.reconcileIssues.clear(),
+        db.jointRisks.clear()
+      ])
+    }
+  )
 }
 
 export async function resetDatabase(): Promise<void> {

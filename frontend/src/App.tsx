@@ -7,6 +7,7 @@ import { ROUTES } from './router'
 import { useDamStore } from './stores/damStore'
 import { usePointStore } from './stores/pointStore'
 import { useAlarmStore } from './stores/alarmStore'
+import { useReconcileStore } from './stores/reconcileStore'
 import { useIdbTable } from './hooks/useIdbTable'
 import { db, type ObservationRow } from './utils/db'
 
@@ -18,10 +19,12 @@ export default function App() {
   const damStore = useDamStore()
   const pointStore = usePointStore()
   const alarmStore = useAlarmStore()
+  const reconcileStore = useReconcileStore()
   const observationTable = useIdbTable<ObservationRow>(db.observations, { sortByUpdatedAt: false })
 
   const currentDam = damStore.currentDam()
   const openAlarms = alarmStore.alarms.filter((alarm) => alarm.state !== '已闭环').length
+  const reconcileBadge = reconcileStore.openRiskCount() + reconcileStore.pendingIssueCount()
 
   const navItems = [
     { path: ROUTES.dams, label: '坝体台账', count: damStore.dams.length },
@@ -29,6 +32,7 @@ export default function App() {
     { path: ROUTES.observations, label: '观测录入', count: observationTable.rows.length },
     { path: ROUTES.trends, label: '速率计算', count: pointStore.points.length },
     { path: ROUTES.alarms, label: '预警处置', count: openAlarms },
+    { path: ROUTES.reconcile, label: '回传对账', count: reconcileBadge },
     { path: ROUTES.pool, label: '库水位', count: 0 }
   ]
 

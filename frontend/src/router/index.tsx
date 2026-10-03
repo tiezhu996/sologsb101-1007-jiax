@@ -1,5 +1,5 @@
 /**
- * 路由表：/dams、/points、/observations、/trends、/alarms、/pool
+ * 路由表：/dams、/points、/observations、/trends、/alarms、/reconcile、/pool
  * 页面按路由懒加载，构建时自动分包。
  */
 import { Suspense, lazy, type ReactNode } from 'react'
@@ -12,6 +12,7 @@ const PointConfig = lazy(() => import('../pages/PointConfig'))
 const ObservationEntry = lazy(() => import('../pages/ObservationEntry'))
 const TrendBoard = lazy(() => import('../pages/TrendBoard'))
 const AlarmBoard = lazy(() => import('../pages/AlarmBoard'))
+const ReconcileBoard = lazy(() => import('../pages/ReconcileBoard'))
 const PoolLog = lazy(() => import('../pages/PoolLog'))
 
 export const ROUTES = {
@@ -20,6 +21,7 @@ export const ROUTES = {
   observations: '/observations',
   trends: '/trends',
   alarms: '/alarms',
+  reconcile: '/reconcile',
   pool: '/pool'
 } as const
 
@@ -42,6 +44,7 @@ export const appRoutes: RouteObject[] = [
       { path: 'observations', element: withSuspense(<ObservationEntry />) },
       { path: 'trends', element: withSuspense(<TrendBoard />) },
       { path: 'alarms', element: withSuspense(<AlarmBoard />) },
+      { path: 'reconcile', element: withSuspense(<ReconcileBoard />) },
       { path: 'pool', element: withSuspense(<PoolLog />) },
       { path: '*', element: <Navigate to={ROUTES.dams} replace /> }
     ]

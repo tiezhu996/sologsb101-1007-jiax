@@ -72,7 +72,10 @@ export default function PoolLog() {
     })
     .sort((a, b) => b.date.localeCompare(a.date))
 
-  const unqualified = poolTable.rows.filter((pool) => !checkPool(pool).beachOk || !checkPool(pool).freeboardOk).length
+  const unqualified = poolTable.rows.filter((pool) => {
+    const result = checkPool(pool)
+    return !result.factOnly && (!result.beachOk || !result.freeboardOk)
+  }).length
 
   const openCreate = (): void => {
     if (damStore.dams.length === 0) {
@@ -107,7 +110,7 @@ export default function PoolLog() {
       await poolTable.update(editingId, { ...values })
       message.success('库水位记录已更新')
     } else {
-      await poolTable.create({ ...values }, 'pl')
+      await poolTable.create({ ...values, source: '人工录入' as const }, 'pl')
       message.success('库水位与干滩长度已登记')
     }
     setOpen(false)
@@ -150,35 +153,47 @@ export default function PoolLog() {
   }
 
   const columns: TableColumnsType<PoolRow> = [
-    {
-      title: '坝体',
-      width: 190,
-      render: (_value, record) => damStore.dams.find((item) => item.id === record.damId)?.name ?? '—'
-    },
+    { title: '坝体', width: 190, render: (_value, record) => damStore.dams.find((item) => item.id === record.damId)?.name ?? '—' },
     { title: '日期', dataIndex: 'date', width: 120 },
+    {
+      title: '测次时间',
+      width: 150,
+      render: (_value, record) => (record.source === '回传确认' && record.readingTime ? record.readingTime : <span className="muted">当日 00:00</span>)
+    },
     { title: '库水位', dataIndex: 'waterLevelM', width: 120, render: (value: number) => `${value.toFixed(2)} m` },
+    {
+      title: '来源',
+      width: 120,
+      render: (_value, record) => <Tag color={record.source === '回传确认' ? 'blue' : 'default'}>{record.source ?? '人工录入'}</Tag>
+    },
     {
       title: '干滩长度',
       dataIndex: 'beachLengthM',
       width: 130,
-      render: (value: number) => (
-        <span style={{ color: value < MIN_BEACH_LENGTH_M ? '#b03a2e' : undefined }}>{value.toFixed(1)} m</span>
-      )
+      render: (value: number, record) =>
+        record.source === '回传确认' ? (
+          <span className="muted">待补录</span>
+        ) : (
+          <span style={{ color: value < MIN_BEACH_LENGTH_M ? '#b03a2e' : undefined }}>{value.toFixed(1)} m</span>
+        )
     },
     {
       title: '安全超高',
       dataIndex: 'freeboardM',
       width: 130,
-      render: (value: number) => (
-        <span style={{ color: value < MIN_FREEBOARD_M ? '#b03a2e' : undefined }}>{value.toFixed(2)} m</span>
-      )
+      render: (value: number, record) =>
+        record.source === '回传确认' ? (
+          <span className="muted">待补录</span>
+        ) : (
+          <span style={{ color: value < MIN_FREEBOARD_M ? '#b03a2e' : undefined }}>{value.toFixed(2)} m</span>
+        )
     },
     {
       title: '校核结论',
-      width: 190,
+      width: 220,
       render: (_value, record) => {
         const result = checkPool(record)
-        return <Tag color={result.beachOk && result.freeboardOk ? 'green' : 'red'}>{result.text}</Tag>
+        return <Tag color={result.factOnly ? 'blue' : result.beachOk && result.freeboardOk ? 'green' : 'red'}>{result.text}</Tag>
       }
     },
     {
