@@ -7,6 +7,7 @@ import { ROUTES } from './router'
 import { useDamStore } from './stores/damStore'
 import { usePointStore } from './stores/pointStore'
 import { useAlarmStore } from './stores/alarmStore'
+import { useReconcileStore } from './stores/reconcileStore'
 import { useIdbTable } from './hooks/useIdbTable'
 import { db, type ObservationRow } from './utils/db'
 
@@ -18,10 +19,12 @@ export default function App() {
   const damStore = useDamStore()
   const pointStore = usePointStore()
   const alarmStore = useAlarmStore()
+  const reconcileStore = useReconcileStore()
   const observationTable = useIdbTable<ObservationRow>(db.observations, { sortByUpdatedAt: false })
 
   const currentDam = damStore.currentDam()
   const openAlarms = alarmStore.alarms.filter((alarm) => alarm.state !== '已闭环').length
+  const activeJointRisks = reconcileStore.risks.filter((risk) => risk.state === '生效中').length
 
   const navItems = [
     { path: ROUTES.dams, label: '坝体台账', count: damStore.dams.length },
@@ -29,7 +32,8 @@ export default function App() {
     { path: ROUTES.observations, label: '观测录入', count: observationTable.rows.length },
     { path: ROUTES.trends, label: '速率计算', count: pointStore.points.length },
     { path: ROUTES.alarms, label: '预警处置', count: openAlarms },
-    { path: ROUTES.pool, label: '库水位', count: 0 }
+    { path: ROUTES.pool, label: '库水位', count: 0 },
+    { path: ROUTES.reconcile, label: '水位对账', count: activeJointRisks }
   ]
 
   const activePath = navItems.find((item) => location.pathname.startsWith(item.path))?.path ?? ROUTES.dams
@@ -53,7 +57,11 @@ export default function App() {
               onClick={() => navigate(item.path)}
             >
               <span>{item.label}</span>
-              {item.count > 0 ? <em className="app-nav__badge">{item.count}</em> : null}
+              {item.count > 0 ? (
+                <em className="app-nav__badge" style={item.path === ROUTES.reconcile ? { background: '#e07b00' } : undefined}>
+                  {item.count}
+                </em>
+              ) : null}
             </button>
           ))}
         </nav>

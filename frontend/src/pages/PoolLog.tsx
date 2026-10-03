@@ -72,7 +72,9 @@ export default function PoolLog() {
     })
     .sort((a, b) => b.date.localeCompare(a.date))
 
-  const unqualified = poolTable.rows.filter((pool) => !checkPool(pool).beachOk || !checkPool(pool).freeboardOk).length
+  const unqualified = poolTable.rows.filter(
+    (pool) => !checkPool(pool).incomplete && (!checkPool(pool).beachOk || !checkPool(pool).freeboardOk)
+  ).length
 
   const openCreate = (): void => {
     if (damStore.dams.length === 0) {
@@ -94,8 +96,8 @@ export default function PoolLog() {
       damId: pool.damId,
       date: pool.date,
       waterLevelM: pool.waterLevelM,
-      beachLengthM: pool.beachLengthM,
-      freeboardM: pool.freeboardM
+      beachLengthM: pool.beachLengthM ?? 0,
+      freeboardM: pool.freeboardM ?? 0
     })
     setOpen(true)
   }
@@ -104,10 +106,10 @@ export default function PoolLog() {
     const values = await form.validateFields().catch(() => null)
     if (!values) return
     if (editingId) {
-      await poolTable.update(editingId, { ...values })
+      await poolTable.update(editingId, { ...values, source: '现场', packetNo: '', beachLengthM: values.beachLengthM, freeboardM: values.freeboardM })
       message.success('库水位记录已更新')
     } else {
-      await poolTable.create({ ...values }, 'pl')
+      await poolTable.create({ ...values, source: '现场' as const, packetNo: '' }, 'pl')
       message.success('库水位与干滩长度已登记')
     }
     setOpen(false)
@@ -156,28 +158,38 @@ export default function PoolLog() {
       render: (_value, record) => damStore.dams.find((item) => item.id === record.damId)?.name ?? '—'
     },
     { title: '日期', dataIndex: 'date', width: 120 },
+    {
+      title: '来源',
+      dataIndex: 'source',
+      width: 150,
+      render: (value: string, record) =>
+        value === '回传包' ? (
+          <Tag color="blue">回传包{record.packetNo ? ` ${record.packetNo}` : ''}</Tag>
+        ) : (
+          <Tag>现场登记</Tag>
+        )
+    },
     { title: '库水位', dataIndex: 'waterLevelM', width: 120, render: (value: number) => `${value.toFixed(2)} m` },
     {
       title: '干滩长度',
       dataIndex: 'beachLengthM',
       width: 130,
-      render: (value: number) => (
-        <span style={{ color: value < MIN_BEACH_LENGTH_M ? '#b03a2e' : undefined }}>{value.toFixed(1)} m</span>
-      )
+      render: (value: number | null) =>
+        value === null ? <span className="muted">待补录</span> : <span style={{ color: value < MIN_BEACH_LENGTH_M ? '#b03a2e' : undefined }}>{value.toFixed(1)} m</span>
     },
     {
       title: '安全超高',
       dataIndex: 'freeboardM',
       width: 130,
-      render: (value: number) => (
-        <span style={{ color: value < MIN_FREEBOARD_M ? '#b03a2e' : undefined }}>{value.toFixed(2)} m</span>
-      )
+      render: (value: number | null) =>
+        value === null ? <span className="muted">待补录</span> : <span style={{ color: value < MIN_FREEBOARD_M ? '#b03a2e' : undefined }}>{value.toFixed(2)} m</span>
     },
     {
       title: '校核结论',
-      width: 190,
+      width: 220,
       render: (_value, record) => {
         const result = checkPool(record)
+        if (result.incomplete) return <Tag>待现场补录</Tag>
         return <Tag color={result.beachOk && result.freeboardOk ? 'green' : 'red'}>{result.text}</Tag>
       }
     },

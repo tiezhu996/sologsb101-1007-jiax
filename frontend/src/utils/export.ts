@@ -125,7 +125,7 @@ export function exportAlarmCsv(dams: Dam[], points: Point[], alarms: Alarm[]): s
 
 /** 库水位与干滩 CSV（含达标校核） */
 export function exportPoolCsv(dams: Dam[], pools: Pool[]): string {
-  const header = ['坝体', '日期', '库水位(m)', '干滩长度(m)', '安全超高(m)', '校核结论']
+  const header = ['坝体', '日期', '来源', '库水位(m)', '干滩长度(m)', '安全超高(m)', '校核结论']
   const lines: string[] = [header.map(csvCell).join(',')]
   pools.forEach((pool) => {
     const dam = dams.find((item) => item.id === pool.damId)
@@ -133,9 +133,10 @@ export function exportPoolCsv(dams: Dam[], pools: Pool[]): string {
       [
         dam ? dam.name : '—',
         pool.date,
+        pool.source === '回传包' ? `回传包${pool.packetNo ? ` ${pool.packetNo}` : ''}` : '现场登记',
         pool.waterLevelM,
-        pool.beachLengthM,
-        pool.freeboardM,
+        pool.beachLengthM === null ? '待补录' : pool.beachLengthM,
+        pool.freeboardM === null ? '待补录' : pool.freeboardM,
         checkPool(pool).text
       ]
         .map(csvCell)
